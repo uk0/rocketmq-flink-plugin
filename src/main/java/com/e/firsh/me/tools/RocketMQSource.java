@@ -8,6 +8,7 @@ import com.alibaba.rocketmq.common.consumer.ConsumeFromWhere;
 import com.alibaba.rocketmq.common.message.Message;
 import com.alibaba.rocketmq.common.message.MessageExt;
 import com.alibaba.rocketmq.common.protocol.heartbeat.MessageModel;
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
 import org.slf4j.Logger;
@@ -26,21 +27,7 @@ public class RocketMQSource extends RichSourceFunction<String> implements Messag
     public static DefaultMQPushConsumer consumer;
     public transient LinkedBlockingQueue<String> queue;
     private static Logger LOG = LoggerFactory.getLogger(RocketMQSource.class);
-    public static String consumerGroupName;
-    public static String namesrvAddr;
-    public static String[] topic;
-    public static int ConsumeMessageBatchMaxSize;
-    public static int ConsumeThreadMax;
-    public static int ConsumeThreadMin;
-    public static String charset;
-    public RocketMQSource(String consumerGroupName,String namesrvAddr,String charset ,int ConsumeMessageBatchMaxSize,int ConsumeThreadMin,int ConsumeThreadMax,String ...topic){
-        this.consumerGroupName = consumerGroupName;
-        this.namesrvAddr = namesrvAddr;
-        this.topic = topic;
-        this.ConsumeMessageBatchMaxSize = ConsumeMessageBatchMaxSize;
-        this.ConsumeThreadMin = ConsumeThreadMin;
-        this.ConsumeThreadMax = ConsumeThreadMax;
-        this.charset = charset;
+    public RocketMQSource(){
     }
     @Override
     public ConsumeConcurrentlyStatus consumeMessage(List<MessageExt> list, ConsumeConcurrentlyContext consumeConcurrentlyContext) {
@@ -49,7 +36,7 @@ public class RocketMQSource extends RichSourceFunction<String> implements Messag
         String message;
         for (Message msg : list) {
             body = msg.getBody();
-            message = new String(body, Charset.forName(charset));
+            message = new String(body, Charset.forName("GBK"));
             try {
                 queue.put(message);
 
@@ -73,28 +60,29 @@ public class RocketMQSource extends RichSourceFunction<String> implements Messag
     }
     @Override
     public void open(Configuration parameters) throws Exception {
+        super.open(parameters);
+        ExecutionConfig.GlobalJobParameters globalParams = getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+        Configuration globConf = (Configuration) globalParams;
         queue = new LinkedBlockingQueue<>(1000);
-        consumer = new DefaultMQPushConsumer(consumerGroupName);
-        consumer.setNamesrvAddr(namesrvAddr);
+        consumer = new DefaultMQPushConsumer( globConf.getString("cgroup", null));
+        consumer.setNamesrvAddr(globConf.getString("mqaddr", null));
         consumer.setInstanceName(UUID.randomUUID().toString());
         consumer.setMessageModel(MessageModel.CLUSTERING);// 消费模式
         consumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
         consumer.registerMessageListener(this);
-        for (String s : topic) {
-            consumer.subscribe(s, "*");
-        }
-        consumer.setConsumeThreadMax(ConsumeThreadMax);
-        consumer.setConsumeThreadMin(ConsumeThreadMin);
-        consumer.setConsumeMessageBatchMaxSize(ConsumeMessageBatchMaxSize);//消息数量每次读取的消息数量
-        System.out.println("Start");
+        consumer.subscribe(globConf.getString("topic", null), "*");
+        consumer.setConsumeThreadMax(64);
+        consumer.setConsumeThreadMin(8);
+        consumer.setConsumeMessageBatchMaxSize(8);//消息数量每次读取的消息数量
+        System.out.println("启动线程");
         consumer.start();
         System.out.println("RocketMQ Started.");
         LOG.info("consumeBatchSize:{} pullBatchSize:{} consumeThread:{}",consumer.getConsumeMessageBatchMaxSize(),consumer.getPullBatchSize(),consumer.getConsumeThreadMax());
-        super.open(parameters);
     }
 
     @Override
     public void run(SourceContext sourceContext) throws Exception {
+        System.out.println("run");
         String obj = "";
         long start = System.currentTimeMillis();
         int sendNum=0, lastSendNum=0;
@@ -110,7 +98,7 @@ public class RocketMQSource extends RichSourceFunction<String> implements Messag
                 obj = queue.take();
                 sourceContext.collect(obj);
             }else {
-                System.out.println("Sleep 1000ms");
+                System.out.println("休眠1s");
                 Thread.sleep(1000);
             }
         }
