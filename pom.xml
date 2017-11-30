@@ -46,6 +46,11 @@
             <version>${rockMQ-version}</version>
         </dependency>
         <dependency>
+            <groupId>com.sun.jdmk</groupId>
+            <artifactId>jmxtools</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-java</artifactId>
             <version>${flink-version}</version>
